@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#176b57" />
+  <title>Ventas Móvil</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main id="loginScreen" class="login-screen">
+    <section class="login-card">
+      <div class="brand-mark" aria-hidden="true">₡</div>
+      <p class="eyebrow">GESTIÓN DE NEGOCIO</p>
+      <h1>Familia Perez</h1>
+      <p class="muted">Inicia sesión para continuar</p>
+      <form id="loginForm">
+        <label for="username">Usuario</label>
+        <input id="username" name="username" autocomplete="username" required placeholder="Escribe tu usuario" />
+        <label for="password">Contraseña</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" required placeholder="Escribe tu contraseña" />
+        <p id="loginError" class="form-error" role="alert"></p>
+        <button class="button primary full-width" type="submit">Ingresar <span aria-hidden="true">→</span></button>
+      </form>
+      <p class="login-hint">Accesos: Admin o Marcelina</p>
+    </section>
+  </main>
+
+  <div id="appScreen" class="app-shell hidden">
+    <header class="topbar">
+      <div class="topbar-brand"><span class="mini-mark">₡</span><div><strong>Ventas Móvil</strong><small id="welcomeUser"></small></div></div>
+      <button id="logoutButton" class="icon-button" type="button" aria-label="Cerrar sesión" title="Cerrar sesión">↪</button>
+    </header>
+
+    <main class="main-content">
+      <section id="ventasView" class="view">
+        <div class="page-heading"><div><p class="eyebrow">REGISTRO</p><h1>Ventas</h1></div><span class="heading-icon">▤</span></div>
+        <form id="saleForm" class="card form-card">
+          <div class="section-title"><span class="step">1</span><h2>Datos del cliente</h2></div>
+          <div class="form-grid">
+            <div class="field"><label for="invoiceNumber">Número de factura</label><input id="invoiceNumber" readonly /></div>
+            <div class="field"><label for="customerName">Nombre</label><input id="customerName" required autocomplete="given-name" /></div>
+            <div class="field"><label for="customerLastName">Apellidos</label><input id="customerLastName" required autocomplete="family-name" /></div>
+            <div class="field"><label for="customerId">Cédula</label><input id="customerId" required inputmode="numeric" /></div>
+            <div class="field"><label for="customerPhone">Teléfono</label><input id="customerPhone" type="tel" required autocomplete="tel" /></div>
+            <div class="field span-two"><label for="customerAddress">Ubicación o dirección</label><textarea id="customerAddress" rows="2" required autocomplete="street-address"></textarea></div>
+          </div>
+
+          <div class="section-title section-gap"><span class="step">2</span><h2>Detalle de venta</h2></div>
+          <div class="form-grid">
+            <div class="field span-two"><label for="saleProduct">Artículo del inventario</label><select id="saleProduct" required><option value="">Primero agrega artículos al inventario</option></select><small id="productHint" class="field-hint">Selecciona un artículo disponible.</small></div>
+            <div class="field span-two"><label for="salePrice">Precio de venta</label><div class="money-input"><span>₡</span><input id="salePrice" type="number" min="0" step="1" inputmode="numeric" required placeholder="0" /></div></div>
+            <div class="field"><label for="paymentPlan">Forma de pago</label><select id="paymentPlan" required><option value="contado">Contado</option><option value="3 cuotas">3 cuotas</option></select></div>
+            <div class="field"><label for="paymentMethod">Método de pago</label><select id="paymentMethod" required><option value="Efectivo">Efectivo</option><option value="Sinpe">Sinpe</option></select></div>
+          </div>
+          <div id="installments" class="installments hidden">
+            <p class="installment-title">Fechas de las 3 cuotas</p>
+            <div class="form-grid">
+              <div class="field"><label for="date1">Cuota 1</label><input id="date1" type="date" /></div>
+              <div class="field"><label for="date2">Cuota 2</label><input id="date2" type="date" /></div>
+              <div class="field span-two"><label for="date3">Cuota 3</label><input id="date3" type="date" /></div>
+            </div>
+          </div>
+          <button class="button primary full-width submit-sale" type="submit">Guardar venta <span aria-hidden="true">✓</span></button>
+          <p id="saleMessage" class="success-message" role="status"></p>
+        </form>
+      </section>
+
+      <section id="inventarioView" class="view hidden">
+        <div class="page-heading"><div><p class="eyebrow">PRODUCTOS</p><h1>Inventario</h1></div><span class="heading-icon">▦</span></div>
+        <div class="inventory-actions card">
+          <div><strong>Gestiona tus artículos</strong><small>Importa o exporta una copia en formato JSON.</small></div>
+          <div class="action-row"><button id="importButton" class="button secondary" type="button">↑ Importar</button><button id="exportButton" class="button secondary" type="button">↓ Exportar</button><input id="importFile" type="file" accept=".json,application/json" hidden /></div>
+        </div>
+        <form id="productForm" class="card form-card">
+          <div class="section-title"><span class="step">+</span><h2>Agregar artículo</h2></div>
+          <div class="field"><label for="productName">Nombre del artículo</label><input id="productName" required placeholder="Ej. Queso fresco" /></div>
+          <div class="field"><label for="productDetails">Detalles</label><textarea id="productDetails" rows="3" placeholder="Descripción, presentación u otros detalles"></textarea></div>
+          <div class="form-grid">
+            <div class="field span-two"><label for="productCost">Precio costo</label><div class="money-input"><span>₡</span><input id="productCost" type="number" min="0" step="1" inputmode="numeric" required placeholder="0" /></div></div>
+            <div class="field"><label for="productStock">Unidades disponibles</label><input id="productStock" type="number" min="0" step="1" inputmode="numeric" value="1" required /></div>
+            <div class="field"><label for="productPhoto">Foto del artículo</label><input id="productPhoto" type="file" accept="image/*" /></div>
+          </div>
+          <div id="photoPreview" class="photo-preview hidden"></div>
+          <button class="button primary full-width" type="submit">Guardar en inventario</button>
+          <p id="inventoryMessage" class="success-message" role="status"></p>
+        </form>
+        <div class="list-heading"><h2>Artículos</h2><span id="inventoryCount" class="count-badge">0</span></div>
+        <div id="inventoryList" class="item-list"></div>
+      </section>
+
+      <section id="historialView" class="view hidden">
+        <div class="page-heading"><div><p class="eyebrow">REGISTRO INMUTABLE</p><h1>Historial de ventas</h1></div><span class="heading-icon">▤</span></div>
+        <div class="order-summary card"><span>Facturas guardadas</span><strong id="orderCount">0</strong></div>
+        <div id="ordersList" class="item-list"></div>
+      </section>
+
+      <section id="pedidosView" class="view hidden">
+        <div class="page-heading"><div><p class="eyebrow">ENCARGOS</p><h1>Pedidos</h1></div><span class="heading-icon">▣</span></div>
+        <form id="requestForm" class="card form-card">
+          <div class="section-title"><span class="step">+</span><h2>Crear ticket de pedido</h2></div>
+          <div class="form-grid">
+            <div class="field"><label for="requestName">Nombre</label><input id="requestName" required /></div>
+            <div class="field"><label for="requestLastName">Apellidos</label><input id="requestLastName" required /></div>
+            <div class="field"><label for="requestDate">Fecha del pedido</label><input id="requestDate" type="date" required /></div>
+            <div class="field"><label for="deliveryDate">Fecha de entrega del artículo</label><input id="deliveryDate" type="date" required /></div>
+            <div class="field span-two"><label for="requestDescription">Descripción</label><textarea id="requestDescription" rows="3" required placeholder="Detalle qué artículo o trabajo se solicita"></textarea></div>
+            <div class="field span-two"><label for="estimatedPrice">Precio aproximado (opcional)</label><div class="money-input"><span>₡</span><input id="estimatedPrice" type="number" min="0" step="1" inputmode="numeric" placeholder="0" /></div></div>
+            <div class="field span-two"><label for="requestPlan">Forma de pago</label><select id="requestPlan" required><option value="contado">Contado</option><option value="3 cuotas">3 cuotas</option></select></div>
+          </div>
+          <button class="button primary full-width submit-sale" type="submit">Guardar pedido <span aria-hidden="true">✓</span></button>
+          <p id="requestMessage" class="success-message" role="status"></p>
+        </form>
+        <div class="list-heading"><h2>Tickets guardados</h2><span id="requestCount" class="count-badge">0</span></div>
+        <div id="requestsList" class="item-list"></div>
+      </section>
+    </main>
+
+    <nav class="bottom-nav" aria-label="Menú principal">
+      <button class="nav-item active" data-view="ventasView" type="button"><span aria-hidden="true">＋</span><small>Ventas</small></button>
+      <button class="nav-item" data-view="inventarioView" type="button"><span aria-hidden="true">▦</span><small>Inventario</small></button>
+      <button class="nav-item" data-view="historialView" type="button"><span aria-hidden="true">▤</span><small>Historial</small></button>
+      <button class="nav-item" data-view="pedidosView" type="button"><span aria-hidden="true">▣</span><small>Pedidos</small></button>
+    </nav>
+  </div>
+  <script src="script.js"></script>
+</body>
+</html>
