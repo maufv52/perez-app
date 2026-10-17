@@ -1,34 +1,16 @@
-const USERS = {
-  Heilyn: '123Queso',
-  Marcelina: '123Fortuna',
-  Masteruser: 'Isaac.25$*'
-};
-const INVENTORY_KEY = 'ventasMovil_inventory';
-const ORDERS_KEY = 'ventasMovil_orders';
-const REQUESTS_KEY = 'ventasMovil_requests';
-
-function readStorage(key) {
-  try {
-    const value = JSON.parse(localStorage.getItem(key) || '[]');
-    return Array.isArray(value) ? value : [];
-  } catch {
-    return [];
-  }
-}
-
-let inventory = readStorage(INVENTORY_KEY);
-let orders = readStorage(ORDERS_KEY);
-let requests = readStorage(REQUESTS_KEY);
+let inventory = [];
+let orders = [];
+let requests = [];
 let pendingPhoto = '';
 let currentUser = '';
+let currentRole = '';
+let csrfToken = '';
+let csrfRequest = null;
+let saleSubmissionId = crypto.randomUUID();
 let pendingReceiptOutput = null;
 
 function canManageInventory() {
-  return currentUser === 'Admin' || currentUser === 'Masteruser' || currentUser === 'Heilyn';
-}
-
-function canAddInventory() {
-  return currentUser === 'Admin' || currentUser === 'Masteruser' || currentUser === 'Heilyn';
+  return currentRole === 'Admin';
 }
 
 const loginScreen = document.getElementById('loginScreen');
@@ -39,19 +21,112 @@ const productForm = document.getElementById('productForm');
 const saleProduct = document.getElementById('saleProduct');
 const paymentPlan = document.getElementById('paymentPlan');
 const installments = document.getElementById('installments');
-const watermarkButton = document.getElementById('watermarkButton');
 const receiptOutputDialog = document.getElementById('receiptOutputDialog');
+const watermarkButton = document.getElementById('watermarkButton');
 
 watermarkButton.addEventListener('click', () => {
-  const wrapper = watermarkButton.parentElement;
-  const isOpen = wrapper.classList.toggle('is-open');
+  const isOpen = watermarkButton.parentElement.classList.toggle('is-open');
   watermarkButton.setAttribute('aria-expanded', String(isOpen));
 });
 
-function persistData() {
-  localStorage.setItem(INVENTORY_KEY, JSON.stringify(inventory));
-  localStorage.setItem(ORDERS_KEY, JSON.stringify(orders));
-  localStorage.setItem(REQUESTS_KEY, JSON.stringify(requests));
+async function refreshCsrf() {
+  if (csrfRequest) return csrfRequest;
+  csrfRequest = (async () => {
+    const response = await fetch('/api/auth/csrf', { cache: 'no-store' });
+    if (!response.ok) throw new Error('No se pudo iniciar la sesión de seguridad. Recarga la página.');
+    csrfToken = (await response.json()).token;
+  })();
+  try { await csrfRequest; } finally { csrfRequest = null; }
+}
+
+async function api(path, { method = 'GET', body } = {}) {
+  if (method !== 'GET' && !csrfToken) await refreshCsrf();
+  const response = await fetch(`/api${path}`, {
+    method,
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': csrfToken },
+    body: body === undefined ? undefined : JSON.stringify(body)
+  });
+  if (!response.ok) {
+    let detail = `Error del servidor (${response.status}).`;
+    const contentType = response.headers.get('content-type') || '';
+    if (contentType.includes('json')) {
+      const problem = await response.json();
+      detail = problem.detail || problem.title || detail;
+    }
+    if (response.status === 429) detail = 'Demasiados intentos. Espera cinco minutos antes de volver a intentar.';
+    if (response.status === 401 && path !== '/auth/login') {
+      showLogin();
+      detail = 'Tu sesión venció. Inicia sesión de nuevo.';
+      document.getElementById('loginError').textContent = detail;
+    }
+    const error = new Error(detail);
+    error.status = response.status;
+    throw error;
+  }
+  return response.status === 204 ? null : response.json();
+}
+
+async function loadState() {
+  const state = await api('/state');
+  inventory = state.inventory;
+  orders = state.orders;
+  requests = state.requests;
+  renderAll();
+}
+
+function showLogin() {
+  currentUser = '';
+  currentRole = '';
+  csrfToken = '';
+  inventory = [];
+  orders = [];
+  requests = [];
+  pendingPhoto = '';
+  pendingReceiptOutput = null;
+  receiptOutputDialog.close();
+  renderAll();
+  saleForm.reset();
+  productForm.reset();
+  document.getElementById('requestForm').reset();
+  document.getElementById('requestDate').value = new Date().toISOString().slice(0, 10);
+  document.getElementById('photoPreview').replaceChildren();
+  installments.classList.add('hidden');
+  installments.querySelectorAll('input').forEach(input => { input.required = false; });
+  saleSubmissionId = crypto.randomUUID();
+  appScreen.classList.add('hidden');
+  loginScreen.classList.remove('hidden');
+}
+
+async function showApp(user) {
+  currentUser = user.username;
+  currentRole = user.role;
+  await refreshCsrf();
+  await loadState();
+  document.getElementById('welcomeUser').textContent = `Hola, ${currentUser}`;
+  loginScreen.classList.add('hidden');
+  appScreen.classList.remove('hidden');
+  showView('ventasView');
+}
+
+async function runAction(element, messageId, action) {
+  if (element.dataset.busy === 'true') return;
+  element.dataset.busy = 'true';
+  if (element.matches('form')) element.inert = true;
+  const buttons = [...element.querySelectorAll('button[type="submit"]')];
+  if (element.matches('button')) buttons.push(element);
+  buttons.forEach(button => { button.disabled = true; });
+  document.getElementById(messageId).textContent = '';
+  try {
+    await action();
+  } catch (error) {
+    console.error('No se pudo completar la operación:', error);
+    document.getElementById(messageId).textContent = error.message || 'No se pudo conectar al servidor.';
+  } finally {
+    element.dataset.busy = 'false';
+    if (element.matches('form')) element.inert = false;
+    buttons.forEach(button => { button.disabled = false; });
+  }
 }
 
 function escapeHtml(value) {
@@ -81,19 +156,6 @@ function printReceipt(title, rows) {
   printWindow.document.close();
 }
 
-function chooseReceiptOutput(title, rows) {
-  pendingReceiptOutput = { title, rows };
-  receiptOutputDialog.showModal();
-}
-
-function completeReceiptOutput() {
-  if (!pendingReceiptOutput) return;
-  const { title, rows } = pendingReceiptOutput;
-  pendingReceiptOutput = null;
-  receiptOutputDialog.close();
-  printReceipt(title, rows);
-}
-
 function invoiceRows(order) {
   const dates = order.installmentDates && order.installmentDates.length
     ? order.installmentDates.map((date, index) => `Cuota ${index + 1}: ${date}`).join(' | ')
@@ -107,6 +169,26 @@ function invoiceRows(order) {
   ];
 }
 
+function chooseReceiptOutput(title, rows) {
+  pendingReceiptOutput = { title, rows };
+  receiptOutputDialog.showModal();
+}
+
+function completeReceiptOutput() {
+  if (!pendingReceiptOutput) return;
+  const { title, rows } = pendingReceiptOutput;
+  receiptOutputDialog.close();
+  printReceipt(title, rows);
+}
+
+receiptOutputDialog.addEventListener('close', () => { pendingReceiptOutput = null; });
+document.getElementById('receiptPrintButton').addEventListener('click', completeReceiptOutput);
+document.getElementById('receiptPdfButton').addEventListener('click', completeReceiptOutput);
+document.getElementById('printLatestSaleButton').addEventListener('click', () => {
+  const latest = orders[orders.length - 1];
+  if (latest) chooseReceiptOutput('Factura', invoiceRows(latest));
+});
+
 function requestRows(request) {
   return [
     ['Ticket', request.ticket], ['Nombre', request.name], ['Apellidos', request.lastName],
@@ -117,15 +199,8 @@ function requestRows(request) {
   ];
 }
 
-function nextInvoiceNumber() {
-  const date = new Date();
-  const datePart = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}`;
-  const sequence = String(orders.length + 1).padStart(4, '0');
-  return `FAC-${datePart}-${sequence}`;
-}
-
 function refreshInvoice() {
-  document.getElementById('invoiceNumber').value = nextInvoiceNumber();
+  document.getElementById('invoiceNumber').value = 'Se asigna al guardar';
 }
 
 function showView(viewId) {
@@ -156,10 +231,8 @@ function renderProductSelect() {
 function renderInventory() {
   const list = document.getElementById('inventoryList');
   const canEdit = canManageInventory();
-  const canAdd = canAddInventory();
   document.querySelector('.inventory-actions').classList.toggle('hidden', !canEdit);
-  document.getElementById('importButton').classList.toggle('hidden', !canAdd);
-  productForm.classList.toggle('hidden', !canAdd);
+  productForm.classList.toggle('hidden', !canEdit);
   document.querySelector('#inventarioView .page-heading .eyebrow').textContent = canEdit ? 'PRODUCTOS' : 'PRODUCTOS · SOLO LECTURA';
   list.replaceChildren();
   document.getElementById('inventoryCount').textContent = inventory.length;
@@ -194,13 +267,13 @@ function renderInventory() {
     cost.textContent = item.cost === undefined || item.cost === null || item.cost === ''
       ? 'Costo: No registrado'
       : `Costo: ${formatMoney(item.cost)}`;
-    const salePrice = document.createElement('p');
-    salePrice.textContent = item.salePrice === undefined || item.salePrice === null || item.salePrice === ''
-      ? 'Valor de venta: No registrado'
-      : `Valor de venta: ${formatMoney(item.salePrice)}`;
     const stock = document.createElement('span');
     stock.className = 'stock-tag';
     stock.textContent = `${item.stock} unidades`;
+    const salePrice = document.createElement('p');
+    salePrice.textContent = item.salePrice === undefined || item.salePrice === null
+      ? 'Valor de venta: No registrado'
+      : `Valor de venta: ${formatMoney(item.salePrice)}`;
     info.append(name, details, cost, salePrice, stock);
 
     if (canEdit) {
@@ -209,12 +282,11 @@ function renderInventory() {
       remove.type = 'button';
       remove.textContent = 'Eliminar';
       remove.setAttribute('aria-label', `Eliminar ${item.name} del inventario`);
-      remove.addEventListener('click', () => {
+      remove.addEventListener('click', () => runAction(remove, 'appMessage', async () => {
         if (!canManageInventory()) return;
-        inventory = inventory.filter(product => product.id !== item.id);
-        persistData();
-        renderAll();
-      });
+        await api(`/products/${encodeURIComponent(item.id)}`, { method: 'DELETE' });
+        await loadState();
+      }));
       card.append(info, remove);
     } else {
       card.append(info);
@@ -348,47 +420,40 @@ function renderAll() {
 
 loginForm.addEventListener('submit', event => {
   event.preventDefault();
-  const enteredUsername = document.getElementById('username').value.trim();
-  const username = Object.keys(USERS).find(user => user.toLowerCase() === enteredUsername.toLowerCase());
-  const password = document.getElementById('password').value;
-  if (!username || USERS[username] !== password) {
-    document.getElementById('loginError').textContent = 'Usuario o contraseña incorrectos.';
-    return;
-  }
-  document.getElementById('loginError').textContent = '';
-  currentUser = username;
-  document.getElementById('welcomeUser').textContent = `Hola, ${username}`;
-  loginScreen.classList.add('hidden');
-  appScreen.classList.remove('hidden');
-  renderAll();
+  runAction(loginForm, 'loginError', async () => {
+    const user = await api('/auth/login', {
+      method: 'POST',
+      body: {
+        username: document.getElementById('username').value.trim(),
+        password: document.getElementById('password').value
+      }
+    });
+    document.getElementById('password').value = '';
+    await showApp(user);
+  });
 });
 
-document.getElementById('logoutButton').addEventListener('click', () => {
-  currentUser = '';
-  appScreen.classList.add('hidden');
-  loginScreen.classList.remove('hidden');
-  loginForm.reset();
-});
-
-document.getElementById('receiptPrintButton').addEventListener('click', completeReceiptOutput);
-document.getElementById('receiptPdfButton').addEventListener('click', completeReceiptOutput);
-
-document.getElementById('printLatestSaleButton').addEventListener('click', () => {
-  const latestOrder = orders[orders.length - 1];
-  if (latestOrder) chooseReceiptOutput('Factura', invoiceRows(latestOrder));
+document.getElementById('logoutButton').addEventListener('click', event => {
+  runAction(event.currentTarget, 'appMessage', async () => {
+    await api('/auth/logout', { method: 'POST' });
+    showLogin();
+    loginForm.reset();
+    await refreshCsrf();
+  });
 });
 
 document.querySelectorAll('.nav-item').forEach(button => {
-  button.addEventListener('click', () => showView(button.dataset.view));
+  button.addEventListener('click', () => {
+    showView(button.dataset.view);
+    runAction(button, 'appMessage', loadState);
+  });
 });
+document.getElementById('refreshButton').addEventListener('click', event =>
+  runAction(event.currentTarget, 'appMessage', loadState));
 
 saleProduct.addEventListener('change', () => {
   const product = inventory.find(item => item.id === saleProduct.value);
-  const price = document.getElementById('salePrice');
-  price.value = product && product.salePrice !== null && product.salePrice !== '' &&
-    product.salePrice !== undefined && Number.isFinite(Number(product.salePrice))
-    ? Number(product.salePrice)
-    : '';
+  document.getElementById('salePrice').value = product?.salePrice ?? '';
 });
 
 paymentPlan.addEventListener('change', () => {
@@ -401,45 +466,43 @@ paymentPlan.addEventListener('change', () => {
 
 saleForm.addEventListener('submit', event => {
   event.preventDefault();
+  runAction(saleForm, 'saleMessage', async () => {
   const product = inventory.find(item => item.id === saleProduct.value);
   if (!product || Number(product.stock) < 1) {
-    document.getElementById('saleMessage').textContent = 'El artículo seleccionado ya no tiene unidades disponibles.';
-    renderAll();
-    return;
+    throw new Error('El artículo seleccionado ya no tiene unidades disponibles. Actualiza los datos.');
   }
 
   const price = Number(document.getElementById('salePrice').value);
-  if (!Number.isFinite(price) || price < 0) return;
+  if (!Number.isFinite(price) || price < 0) throw new Error('Indica un precio válido.');
   const installmentDates = paymentPlan.value === '3 cuotas'
     ? ['date1', 'date2', 'date3'].map(id => document.getElementById(id).value)
     : [];
 
-  const order = {
-    invoice: document.getElementById('invoiceNumber').value,
+  const input = {
+    requestId: saleSubmissionId,
+    productId: product.id,
     name: document.getElementById('customerName').value.trim(),
     lastName: document.getElementById('customerLastName').value.trim(),
     customerId: document.getElementById('customerId').value.trim(),
     phone: document.getElementById('customerPhone').value.trim(),
     address: document.getElementById('customerAddress').value.trim(),
-    product: product.name,
     price,
     plan: paymentPlan.value,
     method: document.getElementById('paymentMethod').value,
-    installmentDates,
-    seller: document.getElementById('welcomeUser').textContent.replace('Hola, ', ''),
-    createdAt: new Date().toISOString()
+    installmentDates
   };
 
-  orders.push(order);
-  product.stock = Number(product.stock) - 1;
-  persistData();
+  const order = await api('/sales', { method: 'POST', body: input });
+  saleSubmissionId = crypto.randomUUID();
   saleForm.reset();
   installments.classList.add('hidden');
   installments.querySelectorAll('input[type="date"]').forEach(input => { input.required = false; });
   document.getElementById('saleMessage').textContent = `Venta ${order.invoice} guardada correctamente.`;
-  renderAll();
+  await runAction(document.getElementById('refreshButton'), 'appMessage', loadState);
   chooseReceiptOutput('Factura', invoiceRows(order));
+  });
 });
+saleForm.addEventListener('input', () => { saleSubmissionId = crypto.randomUUID(); });
 
 function imageAsDataUrl(file) {
   return new Promise((resolve, reject) => {
@@ -469,23 +532,30 @@ document.getElementById('productPhoto').addEventListener('change', async event =
   preview.replaceChildren();
   preview.classList.add('hidden');
   if (!file) return;
+  const saveButton = productForm.querySelector('button[type="submit"]');
+  saveButton.disabled = true;
   try {
+    if (file.size > 10 * 1024 * 1024) throw new Error('Selecciona una imagen de menos de 10 MB.');
     pendingPhoto = await imageAsDataUrl(file);
     const image = document.createElement('img');
     image.src = pendingPhoto;
     image.alt = 'Vista previa del artículo';
     preview.append(image);
     preview.classList.remove('hidden');
-  } catch {
-    document.getElementById('inventoryMessage').textContent = 'No se pudo cargar la imagen.';
+  } catch (error) {
+    console.error('No se pudo cargar la foto:', error);
+    document.getElementById('inventoryMessage').textContent = error.message || 'No se pudo cargar la imagen.';
+  } finally {
+    saveButton.disabled = false;
   }
 });
 
 document.getElementById('requestDate').value = new Date().toISOString().slice(0, 10);
 document.getElementById('requestForm').addEventListener('submit', event => {
   event.preventDefault();
+  const form = event.currentTarget;
+  runAction(form, 'requestMessage', async () => {
   const request = {
-    ticket: `PED-${Date.now()}`,
     name: document.getElementById('requestName').value.trim(),
     lastName: document.getElementById('requestLastName').value.trim(),
     requestDate: document.getElementById('requestDate').value,
@@ -494,40 +564,41 @@ document.getElementById('requestForm').addEventListener('submit', event => {
     estimatedPrice: document.getElementById('estimatedPrice').value,
     plan: document.getElementById('requestPlan').value
   };
-  if (!request.name || !request.lastName || !request.requestDate || !request.deliveryDate || !request.description) return;
-  requests.push(request);
-  persistData();
-  event.currentTarget.reset();
+  const saved = await api('/requests', { method: 'POST', body: request });
+  form.reset();
   document.getElementById('requestDate').value = new Date().toISOString().slice(0, 10);
-  document.getElementById('requestMessage').textContent = `Ticket ${request.ticket} guardado correctamente.`;
-  renderRequests();
+  document.getElementById('requestMessage').textContent = `Ticket ${saved.ticket} guardado correctamente.`;
+  await runAction(document.getElementById('refreshButton'), 'appMessage', loadState);
+  });
 });
 
 productForm.addEventListener('submit', event => {
   event.preventDefault();
-  if (!canAddInventory()) return;
+  runAction(productForm, 'inventoryMessage', async () => {
+  if (!canManageInventory()) return;
   const name = document.getElementById('productName').value.trim();
   const cost = Number(document.getElementById('productCost').value);
   const salePrice = Number(document.getElementById('productSalePrice').value);
   const stock = Number(document.getElementById('productStock').value);
-  if (!name || !Number.isFinite(cost) || cost < 0 || !Number.isFinite(salePrice) || salePrice < 0 || !Number.isInteger(stock) || stock < 0) return;
-  inventory.push({
-    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+  if (!name || !Number.isFinite(cost) || cost < 0 || !Number.isFinite(salePrice) || salePrice < 0
+      || !Number.isInteger(stock) || stock < 0)
+    throw new Error('Indica un nombre, costo, valor de venta y cantidad válidos.');
+  await api('/products', { method: 'POST', body: {
     name,
     details: document.getElementById('productDetails').value.trim(),
     cost,
     salePrice,
     stock,
     photo: pendingPhoto
-  });
-  persistData();
+  } });
   productForm.reset();
   document.getElementById('productStock').value = '1';
   pendingPhoto = '';
   document.getElementById('photoPreview').replaceChildren();
   document.getElementById('photoPreview').classList.add('hidden');
   document.getElementById('inventoryMessage').textContent = 'Artículo agregado al inventario.';
-  renderAll();
+  await runAction(document.getElementById('refreshButton'), 'appMessage', loadState);
+  });
 });
 
 document.getElementById('exportButton').addEventListener('click', () => {
@@ -542,10 +613,10 @@ document.getElementById('exportButton').addEventListener('click', () => {
 });
 
 document.getElementById('importButton').addEventListener('click', () => {
-  if (canAddInventory()) document.getElementById('importFile').click();
+  if (canManageInventory()) document.getElementById('importFile').click();
 });
 document.getElementById('importFile').addEventListener('change', async event => {
-  if (!canAddInventory()) {
+  if (!canManageInventory()) {
     event.target.value = '';
     return;
   }
@@ -557,22 +628,43 @@ document.getElementById('importFile').addEventListener('change', async event => 
     if (!Array.isArray(products) || products.some(item => !item || typeof item.name !== 'string')) {
       throw new Error('Formato inválido');
     }
-    inventory = products.map(item => ({
+    if (!confirm('Esto reemplazará todo el inventario compartido para todos los usuarios. ¿Continuar?')) return;
+    const normalized = products.map(item => ({
       id: String(item.id || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`),
       name: item.name.trim(),
       details: String(item.details || ''),
-      cost: Number.isFinite(Number(item.cost)) && Number(item.cost) >= 0 ? Number(item.cost) : null,
-      salePrice: Number.isFinite(Number(item.salePrice)) && Number(item.salePrice) >= 0 ? Number(item.salePrice) : null,
-      stock: Number.isInteger(Number(item.stock)) && Number(item.stock) >= 0 ? Number(item.stock) : 0,
-      photo: typeof item.photo === 'string' && item.photo.startsWith('data:image/') ? item.photo : ''
+      cost: item.cost === undefined || item.cost === null || item.cost === '' ? null : Number(item.cost),
+      salePrice: item.salePrice === undefined || item.salePrice === null || item.salePrice === '' ? null : Number(item.salePrice),
+      stock: Number(item.stock),
+      photo: item.photo || ''
     }));
-    persistData();
-    document.getElementById('inventoryMessage').textContent = `${inventory.length} artículo(s) importado(s).`;
-    renderAll();
-  } catch {
-    document.getElementById('inventoryMessage').textContent = 'No se pudo importar. Selecciona un JSON exportado desde esta app.';
+    if (normalized.some(item => !Number.isInteger(item.stock) || item.stock < 0
+        || (item.cost !== null && (!Number.isFinite(item.cost) || item.cost < 0))
+        || (item.salePrice !== null && (!Number.isFinite(item.salePrice) || item.salePrice < 0)))) {
+      throw new Error('El archivo contiene costos, valores de venta o unidades inválidos.');
+    }
+    const result = await api('/products/import', { method: 'POST', body: normalized });
+    document.getElementById('inventoryMessage').textContent = `${result.count} artículo(s) importado(s).`;
+    await runAction(document.getElementById('refreshButton'), 'appMessage', loadState);
+  } catch (error) {
+    console.error('No se pudo importar:', error);
+    document.getElementById('inventoryMessage').textContent = `No se pudo importar: ${error.message}`;
+  } finally {
+    event.target.value = '';
   }
-  event.target.value = '';
 });
 
 renderAll();
+async function bootstrap() {
+  try {
+    await refreshCsrf();
+    const response = await fetch('/api/auth/me', { cache: 'no-store' });
+    if (response.status === 401) return;
+    if (!response.ok) throw new Error('No se pudo recuperar la sesión. Recarga la página.');
+    await showApp(await response.json());
+  } catch (error) {
+    console.error('No se pudo iniciar la aplicación:', error);
+    document.getElementById('loginError').textContent = error.message || 'No se pudo conectar al servidor.';
+  }
+}
+bootstrap();

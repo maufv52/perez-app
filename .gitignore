@@ -1,0 +1,10 @@
+.azure/
+**/bin/
+**/obj/
+**/TestResults/
+.vs/
+*.user
+*.zip
+.env
+.env.*
+!.env.example

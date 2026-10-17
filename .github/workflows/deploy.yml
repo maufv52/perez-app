@@ -1,0 +1,109 @@
+name: Build, test, and deploy
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: perez-app-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build and test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          global-json-file: global.json
+      - name: Check JavaScript
+        run: node --check .\script.js
+      - name: Restore through the configured CFS feed
+        run: dotnet restore .\tests\KevinSite.Tests.csproj
+      - name: Run application tests
+        run: dotnet test .\tests\KevinSite.Tests.csproj --no-restore --logger trx
+      - name: Publish for the existing 32-bit Windows App Service
+        run: dotnet publish .\server\KevinSite.csproj -c Release -r win-x86 --self-contained false -o "$env:RUNNER_TEMP\publish"
+      - name: Package the complete application
+        shell: pwsh
+        run: Compress-Archive -Path "$env:RUNNER_TEMP\publish\*" -DestinationPath "$env:RUNNER_TEMP\perez-app.zip"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: perez-app
+          path: ${{ runner.temp }}\perez-app.zip
+          if-no-files-found: error
+          retention-days: 14
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: perez-app
+          path: ${{ runner.temp }}\artifact-check
+      - name: Verify deployment artifact roundtrip
+        shell: pwsh
+        run: |
+          $expected = (Get-FileHash "$env:RUNNER_TEMP\perez-app.zip" -Algorithm SHA256).Hash
+          $actual = (Get-FileHash "$env:RUNNER_TEMP\artifact-check\perez-app.zip" -Algorithm SHA256).Hash
+          if ($expected -ne $actual) { throw 'Downloaded deployment ZIP does not match the tested package.' }
+
+  deploy:
+    name: Deploy to the existing website
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && vars.AZURE_DEPLOY_ENABLED == 'true'
+    runs-on: windows-latest
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: perez-app
+          path: ${{ runner.temp }}\deployment
+      - name: Check deployment configuration
+        shell: pwsh
+        env:
+          AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+          AZURE_WEBAPP_NAME: ${{ vars.AZURE_WEBAPP_NAME }}
+        run: |
+          foreach ($name in 'AZURE_CLIENT_ID', 'AZURE_TENANT_ID', 'AZURE_SUBSCRIPTION_ID', 'AZURE_RESOURCE_GROUP', 'AZURE_WEBAPP_NAME') {
+            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) {
+              throw "Configure the production environment variable $name before enabling deployment."
+            }
+          }
+      - uses: azure/login@935127ca5bb3c4b02c9c2c10060028383878f33f # v3
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Deploy and verify
+        shell: pwsh
+        env:
+          AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+          AZURE_WEBAPP_NAME: ${{ vars.AZURE_WEBAPP_NAME }}
+          AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          az webapp deploy --subscription $env:AZURE_SUBSCRIPTION_ID --resource-group $env:AZURE_RESOURCE_GROUP --name $env:AZURE_WEBAPP_NAME --src-path "$env:RUNNER_TEMP\deployment\perez-app.zip" --type zip --timeout 180000
+          if ($LASTEXITCODE -ne 0) { throw 'Application deployment failed.' }
+          $hostName = az webapp show --subscription $env:AZURE_SUBSCRIPTION_ID --resource-group $env:AZURE_RESOURCE_GROUP --name $env:AZURE_WEBAPP_NAME --query defaultHostName -o tsv
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($hostName)) { throw 'Could not resolve the deployed endpoint.' }
+          $base = "https://$hostName"
+          $health = Invoke-RestMethod "$base/healthz" -TimeoutSec 90
+          if ($health.status -ne 'ok' -or $health.service -ne 'ventas-movil-api') { throw 'Unexpected health response.' }
+          foreach ($path in '/', '/styles.css', '/script.js', '/Logo.png') {
+            if ((Invoke-WebRequest "$base$path" -TimeoutSec 90).StatusCode -ne 200) { throw "Asset check failed: $path" }
+          }
+          $anonymous = Invoke-WebRequest "$base/api/state" -SkipHttpErrorCheck -TimeoutSec 90
+          if ($anonymous.StatusCode -ne 401) { throw 'Anonymous database-state access was not rejected.' }
+          "Deployed: $base" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
