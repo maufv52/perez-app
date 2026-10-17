@@ -21,9 +21,14 @@ let orders = readStorage(ORDERS_KEY);
 let requests = readStorage(REQUESTS_KEY);
 let pendingPhoto = '';
 let currentUser = '';
+let pendingReceiptOutput = null;
 
 function canManageInventory() {
-  return currentUser === 'Admin' || currentUser === 'Masteruser';
+  return currentUser === 'Admin' || currentUser === 'Masteruser' || currentUser === 'Heilyn';
+}
+
+function canAddInventory() {
+  return currentUser === 'Admin' || currentUser === 'Masteruser' || currentUser === 'Heilyn';
 }
 
 const loginScreen = document.getElementById('loginScreen');
@@ -34,6 +39,14 @@ const productForm = document.getElementById('productForm');
 const saleProduct = document.getElementById('saleProduct');
 const paymentPlan = document.getElementById('paymentPlan');
 const installments = document.getElementById('installments');
+const watermarkButton = document.getElementById('watermarkButton');
+const receiptOutputDialog = document.getElementById('receiptOutputDialog');
+
+watermarkButton.addEventListener('click', () => {
+  const wrapper = watermarkButton.parentElement;
+  const isOpen = wrapper.classList.toggle('is-open');
+  watermarkButton.setAttribute('aria-expanded', String(isOpen));
+});
 
 function persistData() {
   localStorage.setItem(INVENTORY_KEY, JSON.stringify(inventory));
@@ -66,6 +79,19 @@ function printReceipt(title, rows) {
     @media print { body { width: 52mm; } }
   </style></head><body><h1>${escapeHtml(title)}</h1><div class="rule"></div>${content}<div class="rule"></div><p style="text-align:center">Gracias</p><script>window.onload = () => { window.print(); window.onafterprint = () => window.close(); };<\/script></body></html>`);
   printWindow.document.close();
+}
+
+function chooseReceiptOutput(title, rows) {
+  pendingReceiptOutput = { title, rows };
+  receiptOutputDialog.showModal();
+}
+
+function completeReceiptOutput() {
+  if (!pendingReceiptOutput) return;
+  const { title, rows } = pendingReceiptOutput;
+  pendingReceiptOutput = null;
+  receiptOutputDialog.close();
+  printReceipt(title, rows);
 }
 
 function invoiceRows(order) {
@@ -130,8 +156,10 @@ function renderProductSelect() {
 function renderInventory() {
   const list = document.getElementById('inventoryList');
   const canEdit = canManageInventory();
+  const canAdd = canAddInventory();
   document.querySelector('.inventory-actions').classList.toggle('hidden', !canEdit);
-  productForm.classList.toggle('hidden', !canEdit);
+  document.getElementById('importButton').classList.toggle('hidden', !canAdd);
+  productForm.classList.toggle('hidden', !canAdd);
   document.querySelector('#inventarioView .page-heading .eyebrow').textContent = canEdit ? 'PRODUCTOS' : 'PRODUCTOS · SOLO LECTURA';
   list.replaceChildren();
   document.getElementById('inventoryCount').textContent = inventory.length;
@@ -166,10 +194,14 @@ function renderInventory() {
     cost.textContent = item.cost === undefined || item.cost === null || item.cost === ''
       ? 'Costo: No registrado'
       : `Costo: ${formatMoney(item.cost)}`;
+    const salePrice = document.createElement('p');
+    salePrice.textContent = item.salePrice === undefined || item.salePrice === null || item.salePrice === ''
+      ? 'Valor de venta: No registrado'
+      : `Valor de venta: ${formatMoney(item.salePrice)}`;
     const stock = document.createElement('span');
     stock.className = 'stock-tag';
     stock.textContent = `${item.stock} unidades`;
-    info.append(name, details, cost, stock);
+    info.append(name, details, cost, salePrice, stock);
 
     if (canEdit) {
       const remove = document.createElement('button');
@@ -239,8 +271,8 @@ function renderOrders() {
     const printButton = document.createElement('button');
     printButton.className = 'button secondary';
     printButton.type = 'button';
-    printButton.textContent = 'Reimprimir';
-    printButton.addEventListener('click', () => printReceipt('Factura', invoiceRows(order)));
+    printButton.textContent = 'Imprimir / PDF 58 mm';
+    printButton.addEventListener('click', () => chooseReceiptOutput('Factura', invoiceRows(order)));
     actions.append(viewButton, printButton);
     card.append(top, info, actions);
     list.append(card);
@@ -310,6 +342,7 @@ function renderAll() {
   renderInventory();
   renderOrders();
   renderRequests();
+  document.getElementById('printLatestSaleButton').classList.toggle('hidden', orders.length === 0);
   refreshInvoice();
 }
 
@@ -337,8 +370,25 @@ document.getElementById('logoutButton').addEventListener('click', () => {
   loginForm.reset();
 });
 
+document.getElementById('receiptPrintButton').addEventListener('click', completeReceiptOutput);
+document.getElementById('receiptPdfButton').addEventListener('click', completeReceiptOutput);
+
+document.getElementById('printLatestSaleButton').addEventListener('click', () => {
+  const latestOrder = orders[orders.length - 1];
+  if (latestOrder) chooseReceiptOutput('Factura', invoiceRows(latestOrder));
+});
+
 document.querySelectorAll('.nav-item').forEach(button => {
   button.addEventListener('click', () => showView(button.dataset.view));
+});
+
+saleProduct.addEventListener('change', () => {
+  const product = inventory.find(item => item.id === saleProduct.value);
+  const price = document.getElementById('salePrice');
+  price.value = product && product.salePrice !== null && product.salePrice !== '' &&
+    product.salePrice !== undefined && Number.isFinite(Number(product.salePrice))
+    ? Number(product.salePrice)
+    : '';
 });
 
 paymentPlan.addEventListener('change', () => {
@@ -388,7 +438,7 @@ saleForm.addEventListener('submit', event => {
   installments.querySelectorAll('input[type="date"]').forEach(input => { input.required = false; });
   document.getElementById('saleMessage').textContent = `Venta ${order.invoice} guardada correctamente.`;
   renderAll();
-  printReceipt('Factura', invoiceRows(order));
+  chooseReceiptOutput('Factura', invoiceRows(order));
 });
 
 function imageAsDataUrl(file) {
@@ -455,16 +505,18 @@ document.getElementById('requestForm').addEventListener('submit', event => {
 
 productForm.addEventListener('submit', event => {
   event.preventDefault();
-  if (!canManageInventory()) return;
+  if (!canAddInventory()) return;
   const name = document.getElementById('productName').value.trim();
   const cost = Number(document.getElementById('productCost').value);
+  const salePrice = Number(document.getElementById('productSalePrice').value);
   const stock = Number(document.getElementById('productStock').value);
-  if (!name || !Number.isFinite(cost) || cost < 0 || !Number.isInteger(stock) || stock < 0) return;
+  if (!name || !Number.isFinite(cost) || cost < 0 || !Number.isFinite(salePrice) || salePrice < 0 || !Number.isInteger(stock) || stock < 0) return;
   inventory.push({
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     name,
     details: document.getElementById('productDetails').value.trim(),
     cost,
+    salePrice,
     stock,
     photo: pendingPhoto
   });
@@ -490,10 +542,10 @@ document.getElementById('exportButton').addEventListener('click', () => {
 });
 
 document.getElementById('importButton').addEventListener('click', () => {
-  if (canManageInventory()) document.getElementById('importFile').click();
+  if (canAddInventory()) document.getElementById('importFile').click();
 });
 document.getElementById('importFile').addEventListener('change', async event => {
-  if (!canManageInventory()) {
+  if (!canAddInventory()) {
     event.target.value = '';
     return;
   }
@@ -510,6 +562,7 @@ document.getElementById('importFile').addEventListener('change', async event => 
       name: item.name.trim(),
       details: String(item.details || ''),
       cost: Number.isFinite(Number(item.cost)) && Number(item.cost) >= 0 ? Number(item.cost) : null,
+      salePrice: Number.isFinite(Number(item.salePrice)) && Number(item.salePrice) >= 0 ? Number(item.salePrice) : null,
       stock: Number.isInteger(Number(item.stock)) && Number(item.stock) >= 0 ? Number(item.stock) : 0,
       photo: typeof item.photo === 'string' && item.photo.startsWith('data:image/') ? item.photo : ''
     }));

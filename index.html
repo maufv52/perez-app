@@ -10,6 +10,7 @@
 <body>
   <main id="loginScreen" class="login-screen">
     <section class="login-card">
+      <img class="login-logo" src="logo.png" alt="" aria-hidden="true" />
       <div class="brand-mark" aria-hidden="true">₡</div>
       <p class="eyebrow">GESTIÓN DE NEGOCIO</p>
       <h1>Familia Perez</h1>
@@ -22,7 +23,14 @@
         <p id="loginError" class="form-error" role="alert"></p>
         <button class="button primary full-width" type="submit">Ingresar <span aria-hidden="true">→</span></button>
       </form>
-      <p class="login-hint">Accesos: Admin o Marcelina</p>
+      <div class="watermark-wrap">
+        <button id="watermarkButton" class="watermark" type="button" aria-expanded="false" aria-controls="watermarkContact">KAG SOPORTE</button>
+        <div id="watermarkContact" class="watermark-contact" role="tooltip">
+          <strong>Kevin Alvarado Guevara</strong>
+          <span>Tel. 6290-5915</span>
+          <span>SJO - CR</span>
+        </div>
+      </div>
     </section>
   </main>
 
@@ -34,6 +42,7 @@
 
     <main class="main-content">
       <section id="ventasView" class="view">
+        <img class="sales-heading-logo" src="logo.png" alt="" aria-hidden="true" />
         <div class="page-heading"><div><p class="eyebrow">REGISTRO</p><h1>Ventas</h1></div><span class="heading-icon">▤</span></div>
         <form id="saleForm" class="card form-card">
           <div class="section-title"><span class="step">1</span><h2>Datos del cliente</h2></div>
@@ -63,10 +72,12 @@
           </div>
           <button class="button primary full-width submit-sale" type="submit">Guardar venta <span aria-hidden="true">✓</span></button>
           <p id="saleMessage" class="success-message" role="status"></p>
+          <button id="printLatestSaleButton" class="button secondary full-width hidden" type="button">Imprimir o crear PDF · última factura (58 mm)</button>
         </form>
       </section>
 
       <section id="inventarioView" class="view hidden">
+        <img class="sales-heading-logo" src="logo.png" alt="" aria-hidden="true" />
         <div class="page-heading"><div><p class="eyebrow">PRODUCTOS</p><h1>Inventario</h1></div><span class="heading-icon">▦</span></div>
         <div class="inventory-actions card">
           <div><strong>Gestiona tus artículos</strong><small>Importa o exporta una copia en formato JSON.</small></div>
@@ -78,6 +89,7 @@
           <div class="field"><label for="productDetails">Detalles</label><textarea id="productDetails" rows="3" placeholder="Descripción, presentación u otros detalles"></textarea></div>
           <div class="form-grid">
             <div class="field span-two"><label for="productCost">Precio costo</label><div class="money-input"><span>₡</span><input id="productCost" type="number" min="0" step="1" inputmode="numeric" required placeholder="0" /></div></div>
+            <div class="field span-two"><label for="productSalePrice">Valor de venta</label><div class="money-input"><span>₡</span><input id="productSalePrice" type="number" min="0" step="1" inputmode="numeric" required placeholder="0" /></div></div>
             <div class="field"><label for="productStock">Unidades disponibles</label><input id="productStock" type="number" min="0" step="1" inputmode="numeric" value="1" required /></div>
             <div class="field"><label for="productPhoto">Foto del artículo</label><input id="productPhoto" type="file" accept="image/*" /></div>
           </div>
@@ -90,12 +102,14 @@
       </section>
 
       <section id="historialView" class="view hidden">
+        <img class="sales-heading-logo" src="logo.png" alt="" aria-hidden="true" />
         <div class="page-heading"><div><p class="eyebrow">REGISTRO INMUTABLE</p><h1>Historial de ventas</h1></div><span class="heading-icon">▤</span></div>
         <div class="order-summary card"><span>Facturas guardadas</span><strong id="orderCount">0</strong></div>
         <div id="ordersList" class="item-list"></div>
       </section>
 
       <section id="pedidosView" class="view hidden">
+        <img class="sales-heading-logo" src="logo.png" alt="" aria-hidden="true" />
         <div class="page-heading"><div><p class="eyebrow">ENCARGOS</p><h1>Pedidos</h1></div><span class="heading-icon">▣</span></div>
         <form id="requestForm" class="card form-card">
           <div class="section-title"><span class="step">+</span><h2>Crear ticket de pedido</h2></div>
@@ -123,6 +137,16 @@
       <button class="nav-item" data-view="pedidosView" type="button"><span aria-hidden="true">▣</span><small>Pedidos</small></button>
     </nav>
   </div>
+  <dialog id="receiptOutputDialog" class="receipt-dialog" aria-labelledby="receiptOutputTitle">
+    <h2 id="receiptOutputTitle">¿Qué deseas hacer?</h2>
+    <p>El recibo se abrirá en formato de 58 mm. Para crear el PDF, selecciona “Guardar como PDF” en el diálogo de impresión.</p>
+    <div class="receipt-output-actions">
+      <button id="receiptPrintButton" class="button primary" type="button">Imprimir</button>
+      <button id="receiptPdfButton" class="button secondary" type="button">Crear PDF</button>
+      <button class="receipt-cancel" type="button" onclick="document.getElementById('receiptOutputDialog').close()">Cancelar</button>
+    </div>
+  </dialog>
+  <img class="page-watermark" src="logo.png" alt="" aria-hidden="true" />
   <script src="script.js"></script>
 </body>
 </html>
