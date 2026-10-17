@@ -75,8 +75,14 @@ an identity, grant Azure roles, or enable deployment.
 2. In the explicitly approved Azure tenant, configure a dedicated secretless
    deployment identity. Add an OIDC federated credential:
    - Issuer: `https://token.actions.githubusercontent.com`
-   - Subject: `repo:maufv52/perez-app:environment:production`
+   - Subject: `repo:maufv52@335769643/perez-app@1422757039:environment:production`
    - Audience: `api://AzureADTokenExchange`
+
+   This repository uses GitHub's immutable OIDC subject, including the owner
+   and repository IDs. Confirm the prefix with
+   `gh api repos/maufv52/perez-app/actions/oidc/customization/sub` and append
+   `:environment:production`. Do not substitute the older name-only format:
+   Azure requires an exact subject match. Never print the complete OIDC token.
 3. Grant that identity **Website Contributor** at the existing Web App's
    resource scope only, not at subscription or resource-group scope. It needs no
    SQL permissions. Retain disabled basic publishing authentication.
